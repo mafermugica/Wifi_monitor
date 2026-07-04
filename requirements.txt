@@ -1,0 +1,4 @@
+# wifi_monitor - Dependencias del proyecto
+# Instalar con: pip install -r requirements.txt
+
+psutil>=5.9.0
