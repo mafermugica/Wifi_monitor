@@ -14,10 +14,11 @@ from typing import NoReturn
 from wifi_monitor.models import RepositorioDispositivos, RepositorioHistorial
 from wifi_monitor.network_monitor import medir_velocidad
 from wifi_monitor.intrusion_detector import (
-    LISTA_BLANCA,
+    MODO_APRENDIZAJE,
     escanear_red_arp,
     detectar_intrusos,
-    inicializar_lista_blanca,
+    aprender_macs,
+    obtener_lista_blanca,
     mostrar_alerta,
 )
 
@@ -74,17 +75,20 @@ def ejecutar() -> NoReturn:
 
     1. Mide velocidad de red y guarda en el historial.
     2. Escanea dispositivos conectados (cada INTERVALO_ESCANEO segundos).
-    3. Compara contra lista blanca y alerta si hay intrusos.
-    4. Verifica caídas de velocidad.
+    3. En modo aprendizaje guarda las MACs en el JSON.
+    4. En modo producción compara contra lista blanca y alerta intrusos.
+    5. Verifica caídas de velocidad.
     """
     signal.signal(signal.SIGINT, _manejador_signal)
     signal.signal(signal.SIGTERM, _manejador_signal)
 
-    lista_blanca = inicializar_lista_blanca(list(LISTA_BLANCA))
+    lista_blanca = obtener_lista_blanca()
     ultimo_escaneo: float = 0.0
 
+    modo = "APRENDIZAJE" if MODO_APRENDIZAJE else "PRODUCCIÓN"
     print("╔══════════════════════════════════════════════╗")
     print("║      🛜  MONITOR Wi-Fi  —  v0.1.0           ║")
+    print(f"║  Modo: {modo:<34s}║")
     print("║  Presiona Ctrl+C para detener               ║")
     print("╚══════════════════════════════════════════════╝")
 
@@ -112,8 +116,13 @@ def ejecutar() -> NoReturn:
         if ahora - ultimo_escaneo >= INTERVALO_ESCANEO:
             macs_activas = escanear_red_arp()
             if macs_activas:
-                intrusos = detectar_intrusos(macs_activas, lista_blanca, REPO_DISPOSITIVOS)
-                mostrar_alerta(intrusos)
+                if MODO_APRENDIZAJE:
+                    aprender_macs(macs_activas)
+                else:
+                    intrusos = detectar_intrusos(
+                        macs_activas, lista_blanca, REPO_DISPOSITIVOS
+                    )
+                    mostrar_alerta(intrusos)
             ultimo_escaneo = ahora
 
         # ── 3. Verificación de velocidad ──

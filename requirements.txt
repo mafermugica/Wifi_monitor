@@ -2,3 +2,4 @@
 # Instalar con: pip install -r requirements.txt
 
 psutil>=5.9.0
+speedtest-cli>=2.1.3

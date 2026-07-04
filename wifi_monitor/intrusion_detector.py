@@ -1,11 +1,17 @@
 """
-intrusion_detector.py — Detección básica de intrusos en la red local.
+intrusion_detector.py — Detección de intrusos con modo aprendizaje.
 
-Escanea la red usando ARP, descubre las MAC activas y las compara
-contra una lista blanca configurable. Si aparece una MAC desconocida
-lanza una alerta en consola.
+Modo Aprendizaje (True):
+  Escanea la red y guarda todas las MAC detectadas en
+  'dispositivos_conocidos.json' para construir la lista blanca.
+
+Modo Producción (False):
+  Carga las MAC desde el JSON y las usa como lista blanca.
+  Cualquier MAC no listada genera una alerta de intruso.
 """
 
+import json
+import os
 import re
 import subprocess
 import sys
@@ -15,36 +21,23 @@ from wifi_monitor.models import RepositorioDispositivos
 
 
 # ──────────────────────────────────────────────
-#  Lista blanca de dispositivos conocidos
+#  Configuración del modo aprendizaje
 # ──────────────────────────────────────────────
 
-# Formato: mayúsculas, sin guiones ni dos puntos.
-# El usuario debe editar este conjunto con sus propias MAC.
-LISTA_BLANCA: Set[str] = {
-    "AA:BB:CC:DD:EE:FF",  # → Reemplazar con MAC reales
-    "00:11:22:33:44:55",
-}
+MODO_APRENDIZAJE: bool = True
+RUTA_JSON: str = "dispositivos_conocidos.json"
 
-# Mensaje de ayuda para el primer uso
-_AYUDA_MAC = """
-╔══════════════════════════════════════════════════════╗
-║  IMPORTANTE: Configura tu lista blanca              ║
-║                                                     ║
-║  1. Abre intrusion_detector.py                      ║
-║  2. Edita el conjunto LISTA_BLANCA con las MAC      ║
-║     de tus dispositivos autorizados.                ║
-║                                                     ║
-║  Formato: "AA:BB:CC:DD:EE:FF" (mayúsculas)         ║
-╚══════════════════════════════════════════════════════╝
-"""
 
+# ──────────────────────────────────────────────
+#  Normalización de MAC
+# ──────────────────────────────────────────────
 
 def _normalizar_mac(mac: str) -> str:
     """
     Limpia y normaliza una dirección MAC:
-    - Elimina guiones y espacios
+    - Elimina guiones, espacios y dos puntos
     - Convierte a mayúsculas
-    - Inserta dos puntos cada 2 caracteres si hiciera falta
+    - Inserta dos puntos cada 2 caracteres
     """
     mac = mac.strip().upper().replace("-", "").replace(":", "").replace(" ", "")
     if len(mac) != 12:
@@ -52,19 +45,80 @@ def _normalizar_mac(mac: str) -> str:
     return ":".join(mac[i : i + 2] for i in range(0, 12, 2))
 
 
-def inicializar_lista_blanca(macs_raw: List[str]) -> Set[str]:
-    """
-    Convierte una lista de MACs crudas en el conjunto normalizado
-    que se usará como lista blanca.
+# ──────────────────────────────────────────────
+#  Persistencia de la lista blanca (JSON)
+# ──────────────────────────────────────────────
 
-    Args:
-        macs_raw: strings con MACs (con o sin formato).
+def _cargar_lista_blanca() -> Set[str]:
+    """
+    Carga las MAC conocidas desde el archivo JSON.
 
     Retorna:
-        Set de MACs normalizadas.
+        Set de MACs normalizadas. Vacío si el archivo no existe o está dañado.
     """
-    return {_normalizar_mac(m) for m in macs_raw}
+    if not os.path.exists(RUTA_JSON):
+        print(f"[!] Archivo '{RUTA_JSON}' no encontrado. Lista blanca vacía.")
+        return set()
 
+    try:
+        with open(RUTA_JSON, "r", encoding="utf-8") as f:
+            datos = json.load(f)
+        return set(datos.get("dispositivos", []))
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        print(f"[!] Error al leer '{RUTA_JSON}': {e}")
+        return set()
+
+
+def _guardar_lista_blanca(macs: Set[str]) -> None:
+    """
+    Guarda un conjunto de MACs en el archivo JSON.
+
+    Args:
+        macs: MACs normalizadas a persistir.
+    """
+    datos = {"dispositivos": sorted(macs)}
+    with open(RUTA_JSON, "w", encoding="utf-8") as f:
+        json.dump(datos, f, indent=2, ensure_ascii=False)
+    print(f"[✓] Lista blanca guardada: {len(macs)} dispositivos → {RUTA_JSON}")
+
+
+def aprender_macs(macs_detectadas: List[str]) -> None:
+    """
+    Incorpora las MACs detectadas a la lista blanca persistida.
+
+    Es aditivo: carga las MACs existentes, agrega las nuevas
+    y vuelve a guardar. Así no se pierden dispositivos que
+    estén apagados durante un escaneo.
+
+    Args:
+        macs_detectadas: MACs obtenidas del escaneo de red.
+    """
+    existentes = _cargar_lista_blanca()
+    nuevas = set(macs_detectadas)
+    combinadas = existentes | nuevas
+    if combinadas != existentes:
+        _guardar_lista_blanca(combinadas)
+    else:
+        print(f"[i] No se detectaron MACs nuevas (total: {len(combinadas)}).")
+
+
+def obtener_lista_blanca() -> Set[str]:
+    """
+    Obtiene la lista blanca según el modo de operación.
+
+    En modo aprendizaje devuelve un conjunto vacío
+    (todo se acepta sin alertar).
+
+    En modo producción carga y devuelve las MACs del JSON.
+    """
+    if MODO_APRENDIZAJE:
+        return set()
+    return _cargar_lista_blanca()
+
+
+# ──────────────────────────────────────────────
+#  Escaneo de red vía ARP
+# ──────────────────────────────────────────────
 
 def escanear_red_arp() -> List[str]:
     """
@@ -76,12 +130,13 @@ def escanear_red_arp() -> List[str]:
     Cross-platform: funciona en Windows, Linux y macOS.
     """
     try:
+        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         resultado = subprocess.run(
             ["arp", "-a"],
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            creationflags=flags,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"[!] Error ejecutando arp -a: {e}")
@@ -90,10 +145,7 @@ def escanear_red_arp() -> List[str]:
     salida = resultado.stdout + resultado.stderr
     macs_encontradas: List[str] = []
 
-    # Patrón para capturar direcciones MAC típicas (con guión o dos puntos)
-    patron_mac = re.compile(
-        r"(?:[0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}"
-    )
+    patron_mac = re.compile(r"(?:[0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}")
 
     for coincidencia in patron_mac.finditer(salida):
         try:
@@ -102,8 +154,12 @@ def escanear_red_arp() -> List[str]:
         except ValueError:
             continue
 
-    return list(set(macs_encontradas))  # eliminar duplicados
+    return list(set(macs_encontradas))
 
+
+# ──────────────────────────────────────────────
+#  Detección de intrusos
+# ──────────────────────────────────────────────
 
 def detectar_intrusos(
     macs_detectadas: List[str],
@@ -125,10 +181,8 @@ def detectar_intrusos(
 
     for mac in macs_detectadas:
         if mac in lista_blanca:
-            # Dispositivo conocido → actualizar en el repositorio
             repo.registrar(mac=mac, ip="", nombre="Conocido")
         else:
-            # Dispositivo desconocido → posible intruso
             repo.registrar(mac=mac, ip="", nombre="⚠ INTRUSO ⚠")
             macs_extrañas.append(mac)
 
