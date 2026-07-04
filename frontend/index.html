@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wifi Monitor — Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════
+       ENCABEZADO
+       ════════════════════════════════════ -->
+  <header class="encabezado">
+    <div class="encabezado-inner">
+      <h1 class="logo">🛜  WIFI MONITOR</h1>
+      <span class="badge-vivo">● EN VIVO</span>
+      <span class="actualizacion" id="ultima-actualizacion">—</span>
+    </div>
+  </header>
+
+  <!-- ════════════════════════════════════
+       TARJETAS DE ESTADO
+       ════════════════════════════════════ -->
+  <section class="tarjetas" aria-label="Estado del sistema">
+
+    <article class="tarjeta">
+      <div class="tarjeta-icono">📡</div>
+      <div class="tarjeta-contenido">
+        <span class="tarjeta-etiqueta">Dispositivos Activos</span>
+        <span class="tarjeta-valor" id="card-dispositivos">—</span>
+      </div>
+    </article>
+
+    <article class="tarjeta">
+      <div class="tarjeta-icono">🌐</div>
+      <div class="tarjeta-contenido">
+        <span class="tarjeta-etiqueta">Estado de la Red</span>
+        <span class="tarjeta-valor" id="card-estado">—</span>
+      </div>
+    </article>
+
+    <article class="tarjeta tarjeta-test">
+      <div class="tarjeta-icono">⚡</div>
+      <div class="tarjeta-contenido">
+        <span class="tarjeta-etiqueta">Último Test de Velocidad</span>
+        <div class="tarjeta-valor" id="card-ultimo-test">
+          <span class="placeholder">Esperando datos…</span>
+        </div>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- ════════════════════════════════════
+       CUERPO PRINCIPAL
+       ════════════════════════════════════ -->
+  <main class="principal">
+
+    <!-- Gráfica de consumo -->
+    <section class="panel grafica-panel">
+      <h2 class="panel-titulo">Consumo de Ancho de Banda (última hora)</h2>
+      <div class="grafica-wrapper">
+        <canvas id="consumoChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Tabla de dispositivos -->
+    <section class="panel tabla-panel">
+      <h2 class="panel-titulo">Dispositivos Conectados</h2>
+      <div class="tabla-wrapper">
+        <table id="tabla-dispositivos">
+          <thead>
+            <tr>
+              <th>MAC</th>
+              <th>IP</th>
+              <th>Nombre</th>
+              <th>Registro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="4" class="tabla-vacia">Cargando dispositivos…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ════════════════════════════════════
+       PIE DE PÁGINA
+       ════════════════════════════════════ -->
+  <footer class="pie">
+    <p>Wifi Monitor &mdash; Los datos se actualizan cada 30 segundos</p>
+  </footer>
+
+</body>
+</html>

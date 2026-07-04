@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.pyo
+wifi_monitor.db
+api/node_modules/

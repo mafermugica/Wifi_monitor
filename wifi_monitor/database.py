@@ -6,10 +6,14 @@ Tablas:
   - HistorialConsumo (id PK AUTO, mac_dispositivo FK,
                       megas_bajada, megas_subida, timestamp)
 
+  - HistorialVelocidad (id PK AUTO, bajada_mbps, subida_mbps,
+                        ping_ms, desviacion_detectada, timestamp)
+
 Funciones principales:
   - inicializar_db()                          → Crea BD y tablas.
   - registrar_dispositivo(mac, ip, nombre)    → Inserta o actualiza dispositivo.
   - guardar_muestra_consumo(mac, mb_bajada, mb_subida) → Registra consumo.
+  - guardar_prueba_velocidad(...)              → Guarda test de velocidad.
 """
 
 import sqlite3
@@ -71,6 +75,15 @@ def inicializar_db(ruta: str = DB_PATH) -> sqlite3.Connection:
             timestamp           TEXT    NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS HistorialVelocidad (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            bajada_mbps         REAL    NOT NULL,
+            subida_mbps         REAL    NOT NULL,
+            ping_ms             REAL    NOT NULL,
+            desviacion_detectada INTEGER NOT NULL DEFAULT 0,
+            timestamp           TEXT    NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_consumo_mac
             ON HistorialConsumo(mac_dispositivo);
 
@@ -79,6 +92,9 @@ def inicializar_db(ruta: str = DB_PATH) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_pruebas_timestamp
             ON PruebasVelocidad(timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_historial_velocidad_timestamp
+            ON HistorialVelocidad(timestamp);
     """)
 
     conn.commit()
@@ -302,6 +318,66 @@ def obtener_promedio_desviaciones(
 # ──────────────────────────────────────────────
 #  Gestión de conexión
 # ──────────────────────────────────────────────
+
+# ──────────────────────────────────────────────
+#  HistorialVelocidad — Registro y consultas
+# ──────────────────────────────────────────────
+
+def guardar_prueba_velocidad(
+    conn: sqlite3.Connection,
+    bajada_mbps: float,
+    subida_mbps: float,
+    ping_ms: float,
+    desviacion_detectada: bool,
+) -> Dict[str, Any]:
+    """
+    Guarda el resultado de una prueba de velocidad en HistorialVelocidad.
+
+    Args:
+        conn:               Conexión activa a SQLite.
+        bajada_mbps:        Velocidad de descarga en Mbps.
+        subida_mbps:        Velocidad de subida en Mbps.
+        ping_ms:            Latencia en milisegundos.
+        desviacion_detectada: True si hubo desviación de línea.
+
+    Retorna:
+        Diccionario con la fila recién insertada.
+    """
+    timestamp = datetime.now().strftime(_FORMATO_FECHA)
+
+    cursor = conn.execute(
+        """
+        INSERT INTO HistorialVelocidad
+            (bajada_mbps, subida_mbps, ping_ms, desviacion_detectada, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (bajada_mbps, subida_mbps, ping_ms, int(desviacion_detectada), timestamp),
+    )
+    conn.commit()
+
+    return dict(
+        conn.execute(
+            "SELECT * FROM HistorialVelocidad WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+    )
+
+
+def listar_historial_velocidad(
+    conn: sqlite3.Connection, limite: int = 50
+) -> List[Dict[str, Any]]:
+    """Retorna las últimas N pruebas de velocidad registradas."""
+    return [
+        dict(f)
+        for f in conn.execute(
+            """
+            SELECT * FROM HistorialVelocidad
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (limite,),
+        ).fetchall()
+    ]
+
 
 def cerrar_db(conn: sqlite3.Connection) -> None:
     """Guarda cambios pendientes y cierra la conexión."""
